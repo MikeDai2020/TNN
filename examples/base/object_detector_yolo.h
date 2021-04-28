@@ -54,7 +54,7 @@ private:
                               int image_width, int image_height);
     void NMS(std::vector<ObjectInfo>& objs, std::vector<ObjectInfo>& results);
     
-    float conf_thres = 0.4;
+    float conf_thres = 0.35;
     float iou_thres = 0.5;
     // yolov5s model configurations
     std::vector<float> strides_ = {32.f, 16.f, 8.f};
@@ -71,7 +71,8 @@ private:
     int num_anchor_ = 3;
     int detect_dim_ = 85;
     int grid_per_input_ = 6;
-    
+    //DimsVector input_shape;
+    CopyMakeBorderParam copy_border_para;
 };
 
 }

@@ -32,11 +32,59 @@ MatConvertParam ObjectDetectorYolo::GetConvertParamForInput(std::string name) {
 
 std::shared_ptr<Mat> ObjectDetectorYolo::ProcessSDKInputMat(std::shared_ptr<Mat> input_mat,
                                                                    std::string name) {
-    return TNNSDKSample::ResizeToInputShape(input_mat, name);
+   auto target_dims  = GetInputShape(name);
+   auto input_height = input_mat->GetHeight();
+   auto input_width  = input_mat->GetWidth();
+   copy_border_para  = {0, 0, 0, 0, BORDER_TYPE_CONSTANT, 0};
+   if (target_dims.size() >= 4 && (input_height != target_dims[2] || input_width != target_dims[3])) {
+       float scalex =   (float)target_dims[3] / (float)input_width;
+       float scaley = (float)target_dims[2] / (float)input_height;
+       float scale  = std::min(scalex, scaley);
+       int new_w    = scale * input_width + 0.5;
+       int new_h    = scale * input_height + 0.5;
+       //target_dims[3]        = (new_w + 31) & ~31;
+       //target_dims[2]        = (new_h + 31) & ~31;
+       int top      = (target_dims[2] - new_h)/2;
+       int bottom   = target_dims[2] - top - new_h;
+       int left     = (target_dims[3] - new_w) / 2;
+       int right    = target_dims[3] - new_w - left;
+
+       copy_border_para.left = left;
+       copy_border_para.right = right;
+       copy_border_para.bottom = bottom;
+       copy_border_para.top    = top;
+       printf("left = %d, top = %d, right = %d, bottom = %d\n", left, top, right, bottom);
+       auto dst_dims = {target_dims[0],target_dims[1],new_h, new_w};
+       auto dst_mat  = std::make_shared<TNN_NS::Mat>(input_mat->GetDeviceType(), input_mat->GetMatType(), dst_dims);
+       auto status   = Resize(input_mat, dst_mat, TNNInterpLinear);
+       auto target_mat =
+           std::make_shared<TNN_NS::Mat>(input_mat->GetDeviceType(), input_mat->GetMatType(), target_dims);
+       //input_shape = target_dims;
+       if (status == TNN_OK) {
+           status = CopyMakeBorder(dst_mat, target_mat, top, bottom, left, right, TNNBorderConstant, 0);
+           if (status == TNN_OK) {
+               return target_mat;
+           } else {
+               LOGE("%s\n", status.description().c_str());
+               return nullptr;
+           }
+       } else {
+           LOGE("%s\n", status.description().c_str());
+           return nullptr;
+       }
+   }
+   return input_mat;
+   //return TNNSDKSample::ResizeToInputShape(input_mat, name);
 }
 
 std::shared_ptr<TNNSDKOutput> ObjectDetectorYolo::CreateSDKOutput() {
     return std::make_shared<ObjectDetectorYoloOutput>();
+}
+
+bool CompareOutput(std::shared_ptr<Mat>& mat0, std::shared_ptr<Mat>& mat1) {
+    auto dims0 = mat0->GetDims();
+    auto dims1 = mat1->GetDims();
+    return dims0[1] < dims1[1];
 }
 
 Status ObjectDetectorYolo::ProcessSDKOutput(std::shared_ptr<TNNSDKOutput> output_) {
@@ -45,25 +93,20 @@ Status ObjectDetectorYolo::ProcessSDKOutput(std::shared_ptr<TNNSDKOutput> output
     auto output = dynamic_cast<ObjectDetectorYoloOutput *>(output_.get());
     RETURN_VALUE_ON_NEQ(!output, false,
                         Status(TNNERR_PARAM_ERR, "TNNSDKOutput is invalid"));
-    
-    auto output_mat_0 = output->GetMat("428");
-    RETURN_VALUE_ON_NEQ(!output_mat_0, false,
-                        Status(TNNERR_PARAM_ERR, "GetMat is invalid"));
-    auto output_mat_1 = output->GetMat("427");
-    RETURN_VALUE_ON_NEQ(!output_mat_1, false,
-                        Status(TNNERR_PARAM_ERR, "GetMat is invalid"));
-    auto output_mat_2 = output->GetMat("426");
-    RETURN_VALUE_ON_NEQ(!output_mat_2, false,
-                        Status(TNNERR_PARAM_ERR, "GetMat is invalid"));
-    
-    auto input_shape = GetInputShape();
-    RETURN_VALUE_ON_NEQ(input_shape.size() ==4, true,
-                        Status(TNNERR_PARAM_ERR, "GetInputShape is invalid"));
-    
+    auto out_names = GetOutputNames();  
+    std::vector<std::shared_ptr<Mat>> outputs;
+    for (auto name : out_names) {
+        auto output_mat = output->GetMat(name); 
+        RETURN_VALUE_ON_NEQ(!output_mat, false, Status(TNNERR_PARAM_ERR, "GetMat is invalid"));
+        outputs.push_back(output_mat);
+    }
+    std::sort(outputs.begin(), outputs.end(), CompareOutput);
+
     std::vector<ObjectInfo> object_list;
-    GenerateDetectResult({output_mat_0, output_mat_1, output_mat_2}, object_list, input_shape[3], input_shape[2]);
+    auto input_shape = GetInputShape();
+    GenerateDetectResult(outputs, object_list, input_shape[3], input_shape[2]);
     output->object_list = object_list;
-    return status;
+    return status; 
 }
 
 void ObjectDetectorYolo::NMS(std::vector<ObjectInfo>& objs, std::vector<ObjectInfo>& results) {
@@ -97,8 +140,8 @@ void ObjectDetectorYolo::GenerateDetectResult(std::vector<std::shared_ptr<Mat> >
             if(objectness < conf_thres)
                 continue;
             //center point coord
-            x = (x * 2 - 0.5 + ((i / num_anchor_) % dim[2])) * strides_[blob_index];
-            y = (y * 2 - 0.5 + ((i / num_anchor_) / dim[2]) % dim[1]) * strides_[blob_index];
+            x      = (x * 2 - 0.5 + ((i / num_anchor_) % dim[2])) * strides_[blob_index];
+            y      = (y * 2 - 0.5 + ((i / num_anchor_) / dim[2]) % dim[1]) * strides_[blob_index];
             width  = pow((width  * 2), 2) * anchor_grids_[blob_index * grid_per_input_ + (i%num_anchor_) * 2 + 0];
             height = pow((height * 2), 2) * anchor_grids_[blob_index * grid_per_input_ + (i%num_anchor_) * 2 + 1];
             // compute coords
@@ -116,10 +159,10 @@ void ObjectDetectorYolo::GenerateDetectResult(std::vector<std::shared_ptr<Mat> >
             ObjectInfo obj_info;
             obj_info.image_width = image_width;
             obj_info.image_height = image_height;
-            obj_info.x1 = x1;
-            obj_info.y1 = y1;
-            obj_info.x2 = x2;
-            obj_info.y2 = y2;
+            obj_info.x1 = x1 - copy_border_para.left;
+            obj_info.y1 = y1 - copy_border_para.top;
+            obj_info.x2 = x2 - copy_border_para.left;
+            obj_info.y2 = y2 - copy_border_para.top;
             obj_info.score = score;
             obj_info.class_id = conf_idx;
             extracted_objs.push_back(obj_info);
