@@ -59,6 +59,7 @@ add_executable(demo_x86_readingcomprehension ${CMAKE_SOURCE_DIR}/../../linux/src
 add_executable(demo_x86_objectdetector ${CMAKE_SOURCE_DIR}/../../linux/src/TNNObjectDetector/TNNObjectDetector.cc ${BASE_SRC} ${UTIL_SRC} ${FLAG_SRC})
 add_executable(yolo_demo ../../linux/src/TNNYolo/Demo.cc ${BASE_SRC} ${UTIL_SRC})
 add_executable(pose_demo ../../linux/src/TNNPose/Pose.cc ${BASE_SRC} ${UTIL_SRC})
+add_executable(skeleton_demo ../../linux/src/TNNSkeleton/skeleton.cc ${BASE_SRC} ${UTIL_SRC})
 
 if (TNN_DEMO_WITH_WEBCAM)
     file(GLOB_RECURSE SRC "${CMAKE_SOURCE_DIR}/../../linux/src/TNNWebCamBasedDemo/*.cc")

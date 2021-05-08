@@ -122,7 +122,7 @@ void detectPose()
 {
     const char *name = "yoga.jpg";
     cv::Mat mat          = imread(name);
-    cvtColor(mat, mat, COLOR_BGR2BGRA);
+    //cvtColor(mat, mat, COLOR_BGR2BGRA);
     if (mat.empty())
         return;
     std::shared_ptr<TNN_NS::PoseDetectLandmark> asyncRefDetector;
